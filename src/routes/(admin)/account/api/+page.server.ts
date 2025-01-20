@@ -1,16 +1,17 @@
 import { fail, redirect } from "@sveltejs/kit"
 import { sendAdminEmail, sendUserEmail } from "$lib/mailer"
 import { WebsiteBaseUrl } from "../../../../config"
+import type { Actions, RequestEvent } from './$types'
 
-export const actions = {
-  toggleEmailSubscription: async ({ locals: { supabase, safeGetSession } }) => {
-    const { session } = await safeGetSession()
+export const actions: Actions = {
+  toggleEmailSubscription: async (event: RequestEvent) => {
+    const { session } = await event.locals.safeGetSession()
 
     if (!session) {
       redirect(303, "/login")
     }
 
-    const { data: currentProfile } = await supabase
+    const { data: currentProfile } = await event.locals.supabase
       .from("profiles")
       .select("unsubscribed")
       .eq("id", session.user.id)
@@ -18,7 +19,7 @@ export const actions = {
 
     const newUnsubscribedStatus = !currentProfile?.unsubscribed
 
-    const { error } = await supabase
+    const { error } = await event.locals.supabase
       .from("profiles")
       .update({ unsubscribed: newUnsubscribedStatus })
       .eq("id", session.user.id)
@@ -32,13 +33,13 @@ export const actions = {
       unsubscribed: newUnsubscribedStatus,
     }
   },
-  updateEmail: async ({ request, locals: { supabase, safeGetSession } }) => {
-    const { session } = await safeGetSession()
+  updateEmail: async (event: RequestEvent) => {
+    const { session } = await event.locals.safeGetSession()
     if (!session) {
       redirect(303, "/login")
     }
 
-    const formData = await request.formData()
+    const formData = await event.request.formData()
     const email = formData.get("email") as string
 
     let validationError
@@ -61,7 +62,7 @@ export const actions = {
 
     // Supabase does not change the email until the user verifies both
     // if 'Secure email change' is enabled in the Supabase dashboard
-    const { error } = await supabase.auth.updateUser({ email: email })
+    const { error } = await event.locals.supabase.auth.updateUser({ email: email })
 
     if (error) {
       console.error("Error updating email", error)
@@ -75,13 +76,13 @@ export const actions = {
       email,
     }
   },
-  updatePassword: async ({ request, locals: { supabase, safeGetSession } }) => {
-    const { session, user, amr } = await safeGetSession()
+  updatePassword: async (event: RequestEvent) => {
+    const { session, user, amr } = await event.locals.safeGetSession()
     if (!session) {
       redirect(303, "/login")
     }
 
-    const formData = await request.formData()
+    const formData = await event.request.formData()
     const newPassword1 = formData.get("newPassword1") as string
     const newPassword2 = formData.get("newPassword2") as string
     const currentPassword = formData.get("currentPassword") as string
@@ -149,7 +150,7 @@ export const actions = {
     // Note: to make this truly enforced you need to contact supabase. See: https://www.reddit.com/r/Supabase/comments/12iw7o1/updating_password_in_supabase_seems_insecure/
     // However, having the UI accessible route still verify password is still helpful, and needed once you get the setting above enabled
     if (!isRecoverySession) {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error } = await event.locals.supabase.auth.signInWithPassword({
         email: user?.email || "",
         password: currentPassword,
       })
@@ -159,7 +160,7 @@ export const actions = {
       }
     }
 
-    const { error } = await supabase.auth.updateUser({
+    const { error } = await event.locals.supabase.auth.updateUser({
       password: newPassword1,
     })
     if (error) {
@@ -178,16 +179,13 @@ export const actions = {
       currentPassword,
     }
   },
-  deleteAccount: async ({
-    request,
-    locals: { supabase, supabaseServiceRole, safeGetSession },
-  }) => {
-    const { session, user } = await safeGetSession()
+  deleteAccount: async (event: RequestEvent) => {
+    const { session, user } = await event.locals.safeGetSession()
     if (!session || !user?.id) {
       redirect(303, "/login")
     }
 
-    const formData = await request.formData()
+    const formData = await event.request.formData()
     const currentPassword = formData.get("currentPassword") as string
 
     if (!currentPassword) {
@@ -200,7 +198,7 @@ export const actions = {
     }
 
     // Check current password is correct before deleting account
-    const { error: pwError } = await supabase.auth.signInWithPassword({
+    const { error: pwError } = await event.locals.supabase.auth.signInWithPassword({
       email: user?.email || "",
       password: currentPassword,
     })
@@ -209,7 +207,7 @@ export const actions = {
       redirect(303, "/login/current_password_error")
     }
 
-    const { error } = await supabaseServiceRole.auth.admin.deleteUser(
+    const { error } = await event.locals.supabaseServiceRole.auth.admin.deleteUser(
       user.id,
       true,
     )
@@ -221,16 +219,16 @@ export const actions = {
       })
     }
 
-    await supabase.auth.signOut()
+    await event.locals.supabase.auth.signOut()
     redirect(303, "/")
   },
-  updateProfile: async ({ request, locals: { supabase, safeGetSession } }) => {
-    const { session, user } = await safeGetSession()
+  updateProfile: async (event: RequestEvent) => {
+    const { session, user } = await event.locals.safeGetSession()
     if (!session || !user?.id) {
       redirect(303, "/login")
     }
 
-    const formData = await request.formData()
+    const formData = await event.request.formData()
     const fullName = formData.get("fullName") as string
     const companyName = formData.get("companyName") as string
     const website = formData.get("website") as string
@@ -272,13 +270,13 @@ export const actions = {
     }
 
     // To check if created or updated, check if priorProfile exists
-    const { data: priorProfile, error: priorProfileError } = await supabase
+    const { data: priorProfile, error: priorProfileError } = await event.locals.supabase
       .from("profiles")
       .select(`*`)
       .eq("id", session?.user.id)
       .single()
 
-    const { error } = await supabase
+    const { error } = await event.locals.supabase
       .from("profiles")
       .upsert({
         id: user.id,
@@ -328,10 +326,10 @@ export const actions = {
       website,
     }
   },
-  signout: async ({ locals: { supabase, safeGetSession } }) => {
-    const { session } = await safeGetSession()
+  signout: async (event: RequestEvent) => {
+    const { session } = await event.locals.safeGetSession()
     if (session) {
-      await supabase.auth.signOut()
+      await event.locals.supabase.auth.signOut()
       redirect(303, "/")
     } else {
       redirect(303, "/")
